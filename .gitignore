@@ -1,2 +1,5 @@
 *.swp
+*.log
+*.aux
+*.out
 _site/
