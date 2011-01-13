@@ -1,0 +1,7 @@
+auto:      true
+server:    true
+pygments:  true
+
+maruku:
+  use_tex: true
+  png_engine: blahtex

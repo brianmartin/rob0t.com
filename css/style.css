@@ -1,0 +1,26 @@
+body {
+    text-align: center;
+    color: #333333;
+    font-family: 'Palatino Linotype', 'Book Antiqua', Palatino, serif;
+}
+a:link { color: #3F8F57;}
+a:visited { color: #3F8F57;}
+
+div.container {
+    text-align: left;
+    width:750px;
+    margin-left: auto;
+    margin-right: auto;
+    line-height:150%;
+}
+div.nav {
+    float:left;
+    width:160px;
+    margin:0;
+    padding:1em;
+}
+div.blog {
+    margin-left:190px;
+    border-left:1px solid gray;
+    padding:1em;
+}
