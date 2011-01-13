@@ -1,50 +1,77 @@
 ---
 layout: post
-title:
+title: Simple job distribution for Clojure.
 ---
 
-To use:
 
-1. a) Make sure a RabbitMQ server is available.  For the example, that server
-      will be located at 127.0.0.1:5672 with username "guest" and password "guest".
+I've been working recently on a "tool":https://github.com/brianmartin/clojure-parallel-runs to distribute CPU-intensive Clojure jobs
+over a cluster.
 
-   b) Install Leiningen, the Clojure dependency management tool.  It is available
-      with installation instructions at: https://github.com/technomancy/leiningen
+In my case, the motivation is "genetic programming":http://en.wikipedia.org/wiki/Genetic_Programming.  Often we would
+like to find an answer faster through parallelization of the search, gauge
+performance of a new technique, or evaluate the difficulty of a problem.  These
+things require a lot of time and space, but are also great canidates for
+parallelization, especially because there is no shared state.
 
-2. Compile the project by running:
+The workflow is:
+        # Send out the arguments for your job.
+        # Start the workers.
+        # Receive the results.
 
-        $ lein deps
-        $ lein uberjar
+h3. Assumptions
 
-3. Write a Clojure file in the following way.  Here the example will
-be doing a calculation with the number arguments.
+h4. Message Queueing
 
-We may write the following, where params is a map of the parameters to
-be used for any given run.  An example set of parameters to be used in this
-case is {:name "a=3" :a 5 :b 3 :input 5} (where name is used later to
-identify a run using this parameter map).  Also notice that #'example.calculation/run
-is added at the end.  This is necessary for a worker to know which function
-to call in which namespace run.
+A RabbitMQ server is available. For the example, that server will be located at
+127.0.0.1:5672 with username "guest" and password "guest".
 
----calculation.clj----
+h4. SSH keys
+
+A password must not be required for login to the remote machines.  This is necessary to start the workers.
+
+h4. Leiningen
+
+The Clojure dependency management tool.  It is available with installation
+instructions on "github":https://github.com/technomancy/leiningen.
+
+h3. Toy example
+
+For this example we want to calculate 
+
+{% highlight clojure %}
+  (* a (expt b c ))))
+{% endhighlight %}
+
+First, we write our problem file in the following way and save it as *calculation.clj*.
+
+{% highlight clojure %}
 (ns example.calculation
   (:use clojure.contrib.math))
 
 (defn run [params]
 (let [a (params :a)
       b (params :b)
-      x (params :x)]
-  (* a (expt b x ))))
+      x (params :c)]
+  (* a (expt b c ))))
 
 #'examples.calculation/run
----------------------
+{% endhighlight %}
 
-4.  We must define the parameters to be distributed.  This is done in clojure.
-As an example, to define parameters for 10 runs with a=3 and b=[0 10)
-and 10 runs with a=4 and b=[0 10), put the following clojure code into a
-file (here saved as parameters.clj).
 
----parameters.clj---
+Note that params is a map of the parameters to be used for any given run.  An
+example set of parameters to be used in this case is {:name "a=3" :a 5 :b 3 :input 5}
+(where name is used later to identify a run using this parameter map).
+
+Also notice that #'example.calculation/run is added at the end.  This is
+necessary for a worker to know which function to call in which namespace.  This
+could be named anything and even be in a different namespace.  Also, the
+problem definition can be split into multiple files (as long as all the workers
+have all the files).
+
+Now we need to define which sets of a, b, and c to run on.  We do this in
+*parameters.clj*
+
+{% highlight clojure %}
 (flatten (vector
   (for [i (range 10)]
     {:name "a=3"
@@ -56,76 +83,88 @@ file (here saved as parameters.clj).
      :a 4
      :b i
      :input 10})))
--------------------
+{% endhighlight %}
+
+Here, I define parameters for 10 runs with a=3 and b=[0 10) and 10 runs with
+a=4 and b=[0 10).
 
 The only requirement is that the code should produce a seq/vec/list of parameter
 maps, and those parameter maps should include :name if a log file is to be saved.
 
-5. Distribute the paramaters.
+h3. Running the example
 
-     $ java -jar clojure-parallel-runs.jar \
-          --distribute --parameters /home/user/parameters.clj \
-          --queue-name my_run \
-          --host 127.0.0.1 --port 5672 --user guest --pass guest
+"Obtain":https://github.com/brianmartin/clojure-parallel-runs and compile the project to jar the ususal way:
 
-   Where host, port, user, and pass pertain to the RabbitMQ server.
+{% highlight sh %}
+$ git clone git://github.com/brianmartin/clojure-parallel-runs.git
+$ cd clojure-parallel-runs
+$ lein deps  
+$ lein uberjar
+{% endhighlight %}
 
-6. Start the workers.
+h4. Distribute the parameters:
 
-    a) Ensure that you have passwordless ssh access to each host in the hosts file.
+{% highlight sh %}
+$ java -jar clojure-parallel-runs.jar \
+     --distribute --parameters /home/user/parameters.clj \
+     --queue-name my_run \
+     --host 127.0.0.1 --port 5672 --user guest --pass guest
+{% endhighlight %}
 
-    b) Make a hosts file of the form:
+Where host, port, user, and pass pertain to the RabbitMQ server.
 
-       your_username_on_host1 host_or_ip_address1
-       your_username_on_host2 host_or_ip_address2
+h4. Start the workers:
 
-       a more concrete example:
+Make a *hosts* file containing the username and host to start a worker on:
 
-       ---hosts---
-       btm08 compute-1-1
-       btm08 compute-1-2
-       brian 127.0.0.1
-       -----------
+{% highlight sh %}
+btm08 compute-1-1
+btm08 compute-1-2
+brian 127.0.0.1
+{% endhighlight %}
 
-    c) run the command as follows:
+and run:
 
-       $ ./start-workers.sh "java -jar clojure-parallel-runs.jar \
-                                --worker \
-                                --file /home/user/calculation.clj \
-                                --queue-name my_run \
-                                --host 127.0.0.1
-                                --port 5672
-                                --user guest
-                                --pass guest" < hosts
+{% highlight sh %}
+$ ./start-workers.sh "java -jar clojure-parallel-runs.jar \
+                         --worker \
+                         --file /home/user/calculation.clj \
+                         --queue-name my_run \
+                         --host 127.0.0.1
+                         --port 5672
+                         --user guest
+                         --pass guest" < hosts
+{% endhighlight %}
 
-       Where host, port, user, and pass pertain to the RabbitMQ server, and
-       queue-name matches the one with which parameters where distributed.
+Where again, the credentials pertain to the RabbitMQ server, and queue-name
+matches the one with which parameters where distributed.
 
-    d) The workers will process the parameters, and the return values will accumulate.
-       Workers will exit when there are no more parameters to be retrieved.
+The workers will process the parameters, and the return values will accumulate.
+Workers will exit when there are no more parameters to be retrieved.
 
-
-7. The output of each run will written to the specified log directory on each
+The output of each run will written to the specified log directory on each
 worker.  The log file name will be the value of :name given in the parameter
 map followed by the current time in milliseconds.
 
 To retrieve the return values and write them to an output-file run:
 
-     $ java -jar clojure-parallel-runs.jar \
-          --output-file /home/user/output-file
-          --queue-name my_run \
-          --host 127.0.0.1 --port 5672 --user guest --pass guest
+{% highlight sh %}
+$ java -jar clojure-parallel-runs.jar \
+     --output-file /home/user/output-file
+     --queue-name my_run \
+     --host 127.0.0.1 --port 5672 --user guest --pass guest
+{% endhighlight %}
 
-In this example for the parameters.clj used above, /home/user/output-file will
+In this example for the *parameters.clj* used above, */home/user/output-file* will
 contain:
 
----output-file---
+{% highlight sh %}
 ...
-{:name "a=3", :paramaters-used {:name "a=3", :a 3, :b 3, :input 10}, :log-file a=3_1289937662263, :return-value 177147
+{:name "a=3", :paramaters-used {:name "a=3", :a 3, :b 3, :input 10}, :log-file a=3_1289937662263, :return-value 177147}
 {:name "a=3", :paramaters-used {:name "a=3", :a 3, :b 4, :input 10}, :log-file a=3_1289937685082, :return-value 3145728}
 {:name "a=3", :paramaters-used {:name "a=3", :a 3, :b 5, :input 10}, :log-file a=3_1289937716053, :return-value 29296875}
 ...
------------------
+{% endhighlight %}
 
 (This material is based upon work supported by the National Science
 Foundation under Grant No. 1017817. Any opinions, findings, and conclusions or
